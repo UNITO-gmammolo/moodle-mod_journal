@@ -166,114 +166,6 @@ function journal_user_complete($course, $user, $mod, $journal) {
     }
 }
 
-/**
- * Function to be run periodically according to the moodle cron.
- * Finds all journal notifications that have yet to be mailed out, and mails them.
- */
-function journal_cron () {
-    global $CFG, $USER, $DB;
-
-    $cutofftime = time() - $CFG->maxeditingtime;
-
-    if ($entries = journal_get_unmailed_graded($cutofftime)) {
-        $timenow = time();
-
-        $usernamefields = get_all_user_name_fields();
-        $requireduserfields = 'id, auth, mnethostid, email, mailformat, maildisplay, lang, deleted, suspended, '
-                .implode(', ', $usernamefields);
-
-        // To save some db queries.
-        $users = array();
-        $courses = array();
-
-        foreach ($entries as $entry) {
-
-            echo "Processing journal entry $entry->id\n";
-
-            if (!empty($users[$entry->userid])) {
-                $user = $users[$entry->userid];
-            } else {
-                if (!$user = $DB->get_record("user", array("id" => $entry->userid), $requireduserfields)) {
-                    echo "Could not find user $entry->userid\n";
-                    continue;
-                }
-                $users[$entry->userid] = $user;
-            }
-
-            $USER->lang = $user->lang;
-
-            if (!empty($courses[$entry->course])) {
-                $course = $courses[$entry->course];
-            } else {
-                if (!$course = $DB->get_record('course', array('id' => $entry->course), 'id, shortname')) {
-                    echo "Could not find course $entry->course\n";
-                    continue;
-                }
-                $courses[$entry->course] = $course;
-            }
-
-            if (!empty($users[$entry->teacher])) {
-                $teacher = $users[$entry->teacher];
-            } else {
-                if (!$teacher = $DB->get_record("user", array("id" => $entry->teacher), $requireduserfields)) {
-                    echo "Could not find teacher $entry->teacher\n";
-                    continue;
-                }
-                $users[$entry->teacher] = $teacher;
-            }
-
-            // All cached.
-            $coursejournals = get_fast_modinfo($course)->get_instances_of('journal');
-            if (empty($coursejournals) || empty($coursejournals[$entry->journal])) {
-                echo "Could not find course module for journal id $entry->journal\n";
-                continue;
-            }
-            $mod = $coursejournals[$entry->journal];
-
-            // This is already cached internally.
-            $context = context_module::instance($mod->id);
-            $canadd = has_capability('mod/journal:addentries', $context, $user);
-            $entriesmanager = has_capability('mod/journal:manageentries', $context, $user);
-
-            if (!$canadd and $entriesmanager) {
-                continue;  // Not an active participant.
-            }
-
-            $journalinfo = new stdClass();
-            $journalinfo->teacher = fullname($teacher);
-            $journalinfo->journal = format_string($entry->name, true);
-            $journalinfo->url = "$CFG->wwwroot/mod/journal/view.php?id=$mod->id";
-            $modnamepl = get_string( 'modulenameplural', 'journal' );
-            $msubject = get_string( 'mailsubject', 'journal' );
-
-            $postsubject = "$course->shortname: $msubject: ".format_string($entry->name, true);
-            $posttext  = "$course->shortname -> $modnamepl -> ".format_string($entry->name, true)."\n";
-            $posttext .= "---------------------------------------------------------------------\n";
-            $posttext .= get_string("journalmail", "journal", $journalinfo)."\n";
-            $posttext .= "---------------------------------------------------------------------\n";
-            if ($user->mailformat == 1) {  // HTML.
-                $posthtml = "<p><font face=\"sans-serif\">".
-                "<a href=\"$CFG->wwwroot/course/view.php?id=$course->id\">$course->shortname</a> ->".
-                "<a href=\"$CFG->wwwroot/mod/journal/index.php?id=$course->id\">journals</a> ->".
-                "<a href=\"$CFG->wwwroot/mod/journal/view.php?id=$mod->id\">".format_string($entry->name, true)."</a></font></p>";
-                $posthtml .= "<hr /><font face=\"sans-serif\">";
-                $posthtml .= "<p>".get_string("journalmailhtml", "journal", $journalinfo)."</p>";
-                $posthtml .= "</font><hr />";
-            } else {
-                $posthtml = "";
-            }
-
-            if (! email_to_user($user, $teacher, $postsubject, $posttext, $posthtml)) {
-                echo "Error: Journal cron: Could not send out mail for id $entry->id to user $user->id ($user->email)\n";
-            }
-            if (!$DB->set_field("journal_entries", "mailed", "1", array("id" => $entry->id))) {
-                echo "Could not update the mailed field for id $entry->id\n";
-            }
-        }
-    }
-
-    return true;
-}
 
 /**
  * Given a course and a time, this module should find recent activity
@@ -782,15 +674,6 @@ function journal_count_entries($journal, $groupid = 0) {
     }
 
     return count($journals);
-}
-
-function journal_get_unmailed_graded($cutofftime) {
-    global $DB;
-
-    $sql = "SELECT je.*, j.course, j.name FROM {journal_entries} je
-            JOIN {journal} j ON je.journal = j.id
-            WHERE je.mailed = '0' AND je.timemarked < ? AND je.timemarked > 0";
-    return $DB->get_records_sql($sql, array($cutofftime));
 }
 
 function journal_log_info($log) {
