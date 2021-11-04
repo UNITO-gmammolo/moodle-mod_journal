@@ -55,8 +55,8 @@ class cron_task extends \core\task\scheduled_task {
 
         if ($entries = $this->journal_get_unmailed_graded($cutofftime)) {
             
-            $usernamefields = get_all_user_name_fields();
-            $requireduserfields = 'id, auth, mnethostid, email, mailformat, maildisplay, lang, deleted, suspended, '
+            $usernamefields = \core_user\fields::get_name_fields();
+            $requireduserfields = 'id, auth, mnethostid, email, mailformat, maildisplay, lang, deleted, suspended, username, '
                     .implode(', ', $usernamefields);
     
             // To save some db queries.
